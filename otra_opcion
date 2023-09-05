@@ -1,0 +1,84 @@
+#include <stdlib.h>
+#include <threads.h>
+
+// circular array
+typedef struct _queue {
+    int size;
+    int used;
+    int first;
+    void **data;
+    cnd_t full_queue;
+    cnd_t empty_queue;
+    mtx_t mutex;
+    int waiting_thrd;
+    //int ended;
+} _queue;
+
+#include "queue.h"
+
+//AHORA HACE FALTA UNA FUNCION QUE BLOQUEE POR MUTEX EL CAMBIO DE ENDED A TRUE//
+
+queue q_create(int size) {
+    queue q = malloc(sizeof(_queue));
+
+    q->size  = size;
+    q->used  = 0;
+    q->first = 0;
+    q->data  = malloc(size * sizeof(void *));
+    mtx_init(&q->mutex, 0);
+    q->waiting_thrd = 0;
+    //q->ended = false;
+
+    return q;
+}
+
+int q_elements(queue q) {
+    
+    mtx_lock(&q->mutex);
+    int used = q-> used;
+    
+    return used;
+}
+
+int q_insert(queue q, void *elem) {
+    mtx_lock(&q->mutex);
+
+    while(q->size == q->used) //cola llena
+        q->waiting_thrd++;
+        cnd_wait(&q->full_queue, &q->mutex); //espera a que haya un hueco
+        
+
+    q->data[(q->first + q->used) % q->size] = elem;
+    q->used++;
+    /**/cnd_broadcast(&q->empty_queue);/**/
+    
+    mtx_unlock(&q->mutex);
+    return 0;
+}
+
+void* q_remove(queue q) { 
+    void *res;
+    mtx_lock(&q->mutex);
+    
+    if(q->used == 0) //vacío. Esperamos
+        cnd_wait(&q->empty_queue, &q->mutex);
+
+    res = q->data[q->first];
+
+    q->first = (q->first + 1) % q->size;
+    q->used--;
+
+    if(q->waitngin_thrd > 0){
+        cnd_signal(&q->full_queue);
+        q->waiting_thrd--;
+    }
+    
+    mtx_unlock(&q->mutex);
+    return res;
+}
+
+void q_destroy(queue q) {
+    mtx_destroy(&q->mutex);
+    free(q->data);
+    free(q);
+}
